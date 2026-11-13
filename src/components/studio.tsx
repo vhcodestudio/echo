@@ -137,7 +137,7 @@ function Result({ e, tab, setTab, active, setActive }: {
     <article className="rise mt-12 border-t-2 border-ink pt-6">
       <p className="font-mono text-xs uppercase tracking-widest text-muted">{e.show}</p>
       <h2 className="mt-2 font-serif text-3xl leading-tight sm:text-4xl">{e.title}</h2>
-      <div className="mt-6"><Wave seed={e.id} progress={ranges[active].start / e.duration} /></div>
+      <div className="mt-6"><Wave seed={e.id} progress={ranges[active].end / e.duration} /></div>
 
       <div role="tablist" aria-label="Resultado" className="mt-6 flex gap-5 overflow-x-auto border-b border-rule">
         {TABS.map((t) => (
@@ -153,10 +153,10 @@ function Result({ e, tab, setTab, active, setActive }: {
             {t}
           </button>
         ))}
-        <button onClick={download} className="ml-auto shrink-0 py-2 font-mono text-xs text-muted underline hover:text-ink">
-          baixar .md
-        </button>
       </div>
+      <button onClick={download} className="mt-3 font-mono text-xs text-muted underline hover:text-ink">
+        baixar tudo em .md
+      </button>
 
       <div id="panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="pt-6">
         {tab === "Capítulos" && (

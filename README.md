@@ -5,7 +5,7 @@
 
 🔗 **Ao vivo / Live:** https://echo-vhcode.vercel.app
 
-![echo](docs/screenshot.png)
+<img src="docs/screenshot-mobile.jpg" alt="echo no celular: capítulos de um episódio" width="320">
 
 ## Português
 
