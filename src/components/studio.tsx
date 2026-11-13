@@ -1,130 +1,175 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { chapterRanges, fmt, LABELS, LIMITS, toMarkdown, type Episode } from "@/lib/echo";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { chapterRanges, fmt, LABELS, LIMITS, toMarkdown, type Episode, type Platform } from "@/lib/echo";
 import { samples } from "@/lib/samples";
+import { motionTokens, springs } from "@/lib/motion";
+import { Scrubber } from "./wave";
 
-const STEPS = ["Lendo o áudio", "Transcrevendo", "Encontrando capítulos", "Escrevendo resumo e posts"];
+const STEPS = ["Áudio", "Transcrição", "Capítulos", "Textos"];
 const TABS = ["Capítulos", "Resumo", "Posts", "Transcrição"] as const;
 type Tab = (typeof TABS)[number];
-
-function bars(seed: string, n = 72) {
-  let h = [...seed].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
-  return Array.from({ length: n }, () => {
-    h = (h * 1103515245 + 12345) >>> 0;
-    return 0.2 + ((h >>> 16) % 1000) / 1250;
-  });
-}
-
-function Wave({ seed, live = false, progress }: { seed: string; live?: boolean; progress?: number }) {
-  const b = bars(seed);
-  return (
-    <svg viewBox={`0 0 ${b.length * 6} 60`} className="h-14 w-full" aria-hidden="true" preserveAspectRatio="none">
-      {b.map((v, i) => (
-        <rect
-          key={i}
-          x={i * 6}
-          y={30 - v * 28}
-          width="3"
-          height={v * 56}
-          rx="1.5"
-          className={live ? "bar-live" : ""}
-          style={live ? { animationDelay: `${(i % 12) * 80}ms` } : undefined}
-          fill={progress !== undefined && i / b.length < progress ? "var(--color-signal)" : "var(--color-ink)"}
-          opacity={progress !== undefined && i / b.length >= progress ? 0.25 : 1}
-        />
-      ))}
-    </svg>
-  );
-}
+type FileInfo = { name: string; size: string; duration?: string };
 
 export function Studio() {
   const [episode, setEpisode] = useState<Episode | null>(null);
-  const [step, setStep] = useState(-1);
-  const [note, setNote] = useState("");
-  const [tab, setTab] = useState<Tab>("Capítulos");
-  const [active, setActive] = useState(0);
+  const [running, setRunning] = useState<Episode | null>(null);
+  const [step, setStep] = useState(0);
+  const [typed, setTyped] = useState(0);
+  const [file, setFile] = useState<FileInfo | null>(null);
+  const [error, setError] = useState("");
+  const [drag, setDrag] = useState(false);
   const timers = useRef<number[]>([]);
+  const resultRef = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  function run(e: Episode, message = "") {
+  function run(e: Episode) {
     timers.current.forEach(clearTimeout);
+    timers.current = [];
     setEpisode(null);
-    setNote(message);
-    setTab("Capítulos");
-    setActive(0);
-    const fast = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    STEPS.forEach((_, i) => {
-      timers.current.push(window.setTimeout(() => setStep(i), i * (fast ? 50 : 650)));
+    setRunning(e);
+    setStep(0);
+    setTyped(0);
+    const words = e.segments.slice(0, 3).map((s) => s.text).join(" ").split(" ").length;
+    const k = reduce ? 0.05 : 1;
+    const at = (ms: number, fn: () => void) => timers.current.push(window.setTimeout(fn, ms * k));
+    at(500, () => setStep(1));
+    for (let w = 1; w <= words; w++) at(500 + w * 45, () => setTyped(w));
+    const t = 600 + words * 45;
+    at(t, () => setStep(2));
+    at(t + 700, () => setStep(3));
+    at(t + 1400, () => {
+      setRunning(null);
+      setEpisode(e);
+      requestAnimationFrame(() => resultRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }));
     });
-    timers.current.push(
-      window.setTimeout(() => {
-        setStep(-1);
-        setEpisode(e);
-      }, STEPS.length * (fast ? 50 : 650)),
-    );
   }
 
   function onFile(f: File | undefined) {
+    setError("");
     if (!f) return;
-    if (!f.type.startsWith("audio/")) return setNote("Esse arquivo não parece ser de áudio. Tente MP3, WAV ou M4A.");
-    run(samples[0], `Recebemos “${f.name}”. Na versão pública o áudio não sai do seu navegador, então mostramos um episódio de exemplo.`);
+    if (!f.type.startsWith("audio/")) {
+      setFile(null);
+      return setError("Esse arquivo não é de áudio. Use MP3, WAV, M4A ou OGG.");
+    }
+    if (f.size > 200 * 1024 * 1024) return setError("Arquivo acima de 200 MB. Corte o episódio ou exporte em MP3.");
+    const info: FileInfo = { name: f.name, size: `${(f.size / 1024 / 1024).toFixed(1)} MB` };
+    setFile(info);
+    const url = URL.createObjectURL(f);
+    const a = new Audio();
+    a.preload = "metadata";
+    a.onloadedmetadata = () => { setFile({ ...info, duration: fmt(a.duration) }); URL.revokeObjectURL(url); };
+    a.onerror = () => URL.revokeObjectURL(url);
+    a.src = url;
+    run(samples[0]);
   }
 
-  const processing = step >= 0;
+  const busy = !!running;
 
   return (
-    <section className="mt-12" aria-labelledby="start">
-      <h2 id="start" className="sr-only">Começar</h2>
-      <div className="grid gap-4 sm:grid-cols-[1.2fr_1fr]">
-        <label className="group flex cursor-pointer flex-col justify-between rounded-sm border border-dashed border-ink/40 bg-card p-5 transition-colors hover:border-signal focus-within:border-signal">
-          <span className="font-mono text-xs uppercase tracking-widest text-muted">Seu áudio</span>
-          <span className="mt-6 font-serif text-3xl">Solte um arquivo aqui</span>
-          <span className="mt-1 text-sm text-muted">ou toque para escolher · MP3, WAV, M4A</span>
-          <input type="file" accept="audio/*" className="sr-only" onChange={(e) => onFile(e.target.files?.[0])} />
-        </label>
-        <div className="flex flex-col gap-2">
-          <span className="font-mono text-xs uppercase tracking-widest text-muted">Ou teste com um exemplo</span>
-          {samples.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => run(s)}
-              disabled={processing}
-              className="rounded-sm border border-rule bg-card p-3 text-left transition-colors hover:border-ink disabled:opacity-50"
-            >
-              <span className="block text-sm font-medium leading-snug">{s.title}</span>
-              <span className="mt-1 block font-mono text-xs text-muted">{s.show} · {fmt(s.duration)}</span>
-            </button>
-          ))}
+    <>
+      <section id="estudio" aria-labelledby="studio-h" className="scroll-mt-8">
+        <div className="flex items-baseline justify-between border-b border-ink pb-2">
+          <h2 id="studio-h" className="font-mono text-xs uppercase tracking-[0.2em]">Estúdio</h2>
+          <span className="font-mono text-xs text-muted">lado A</span>
         </div>
-      </div>
 
-      <div aria-live="polite">
-        {note && <p className="mt-4 border-l-2 border-signal pl-3 text-sm text-muted">{note}</p>}
-        {processing && (
-          <div className="mt-10">
-            <Wave seed="processing" live />
-            <ol className="mt-4 space-y-1 font-mono text-sm">
-              {STEPS.map((s, i) => (
-                <li key={s} className={i < step ? "text-muted line-through" : i === step ? "text-ink" : "text-muted/50"}>
-                  {i === step ? "→ " : "  "}{s}
+        <div className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_1fr]">
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { e.preventDefault(); setDrag(false); onFile(e.dataTransfer.files[0]); }}
+            className={`relative flex min-h-56 cursor-pointer flex-col justify-between overflow-hidden rounded-[2px] border p-5 transition-colors ${drag ? "border-signal bg-signal/5" : "border-ink/25 bg-card hover:border-ink"} focus-within:border-signal`}
+          >
+            <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
+              <span>Seu áudio</span><span>até 200 MB</span>
+            </div>
+            <div>
+              <p className="font-serif text-4xl leading-none">{drag ? "Pode soltar." : "Arraste o episódio para cá"}</p>
+              <p className="mt-2 text-sm text-muted">ou <span className="text-ink underline decoration-signal decoration-2 underline-offset-4">escolha um arquivo</span> · MP3, WAV, M4A, OGG</p>
+            </div>
+            {file && (
+              <div className="flex items-center gap-3 border-t border-rule pt-3 font-mono text-xs">
+                <span className="grid size-7 place-items-center bg-ink text-paper" aria-hidden="true">♪</span>
+                <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                <span className="text-muted">{file.size}{file.duration ? ` · ${file.duration}` : ""}</span>
+              </div>
+            )}
+            <input type="file" accept="audio/*" className="sr-only" disabled={busy} onChange={(e) => onFile(e.target.files?.[0])} />
+          </label>
+
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Ou ouça o que ele faz com</p>
+            <ol className="mt-3 divide-y divide-rule border-y border-rule">
+              {samples.map((s, i) => (
+                <li key={s.id}>
+                  <button onClick={() => { setFile(null); run(s); }} disabled={busy}
+                    className="group grid w-full grid-cols-[2rem_1fr_auto] items-baseline gap-3 py-4 text-left disabled:opacity-40">
+                    <span className="font-mono text-xs text-signal">{String(i + 1).padStart(2, "0")}</span>
+                    <span>
+                      <span className="block font-serif text-xl leading-tight group-hover:text-signal">{s.title}</span>
+                      <span className="mt-1 block font-mono text-[11px] text-muted">{s.show}</span>
+                    </span>
+                    <span className="font-mono text-xs text-muted">{fmt(s.duration)}</span>
+                  </button>
                 </li>
               ))}
             </ol>
           </div>
-        )}
-      </div>
+        </div>
 
-      {episode && <Result e={episode} tab={tab} setTab={setTab} active={active} setActive={setActive} />}
-    </section>
+        <div aria-live="polite">
+          {error && <p role="alert" className="mt-4 border-l-2 border-signal pl-3 text-sm">{error}</p>}
+          {file && !error && (
+            <p className="mt-4 border-l-2 border-ink/30 pl-3 text-sm text-muted">
+              Seu arquivo não saiu do navegador. Esta versão pública não transcreve áudio real, então mostramos um episódio de exemplo processado do mesmo jeito.
+            </p>
+          )}
+        </div>
+
+        <AnimatePresence>
+          {running && (
+            <motion.div key="proc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              transition={{ duration: motionTokens.duration.fast }} className="mt-10 border border-ink bg-card p-5">
+              <ol className="grid grid-cols-4 gap-2" aria-label="Progresso">
+                {STEPS.map((s, i) => (
+                  <li key={s} aria-current={i === step ? "step" : undefined}>
+                    <div className="h-1 overflow-hidden bg-rule">
+                      <motion.div className="h-full origin-left bg-signal" initial={false}
+                        animate={{ scaleX: i < step ? 1 : i === step ? 0.5 : 0 }} transition={springs.snappy} />
+                    </div>
+                    <span className={`mt-2 block font-mono text-[11px] uppercase tracking-wider ${i <= step ? "text-ink" : "text-muted"}`}>{s}</span>
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-5 min-h-24 font-serif text-xl leading-relaxed">
+                {running.segments.slice(0, 3).map((s) => s.text).join(" ").split(" ").slice(0, typed).join(" ")}
+                <span className="ml-0.5 inline-block h-5 w-[2px] translate-y-1 animate-pulse bg-signal" aria-hidden="true" />
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </section>
+
+      <div ref={resultRef} className="scroll-mt-6">
+        {episode && <Result key={episode.id} e={episode} />}
+      </div>
+    </>
   );
 }
 
-function Result({ e, tab, setTab, active, setActive }: {
-  e: Episode; tab: Tab; setTab: (t: Tab) => void; active: number; setActive: (i: number) => void;
-}) {
+function Result({ e }: { e: Episode }) {
+  const [tab, setTab] = useState<Tab>("Capítulos");
+  const [active, setActive] = useState(0);
+  const [q, setQ] = useState("");
   const ranges = chapterRanges(e.chapters, e.duration);
+  const reduce = useReducedMotion();
+  const words = e.segments.reduce((a, s) => a + s.text.split(" ").length, 0);
+
+  const seekTime = (t: number) => setActive(Math.max(0, ranges.findLastIndex((r) => r.start <= t)));
 
   function download() {
     const url = URL.createObjectURL(new Blob([toMarkdown(e)], { type: "text/markdown" }));
@@ -133,94 +178,157 @@ function Result({ e, tab, setTab, active, setActive }: {
     URL.revokeObjectURL(url);
   }
 
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return s ? e.segments.filter((x) => x.text.toLowerCase().includes(s)) : e.segments;
+  }, [q, e.segments]);
+
+  function onTabKey(ev: React.KeyboardEvent, i: number) {
+    const d = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+    if (!d) return;
+    const next = TABS[(i + d + TABS.length) % TABS.length];
+    setTab(next);
+    document.getElementById(`tab-${next}`)?.focus();
+  }
+
   return (
-    <article className="rise mt-12 border-t-2 border-ink pt-6">
-      <p className="font-mono text-xs uppercase tracking-widest text-muted">{e.show}</p>
-      <h2 className="mt-2 font-serif text-3xl leading-tight sm:text-4xl">{e.title}</h2>
-      <div className="mt-6"><Wave seed={e.id} progress={ranges[active].end / e.duration} /></div>
-
-      <div role="tablist" aria-label="Resultado" className="mt-6 flex gap-5 overflow-x-auto border-b border-rule">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            role="tab"
-            id={`tab-${t}`}
-            aria-selected={tab === t}
-            aria-controls="panel"
-            onClick={() => setTab(t)}
-            className={`-mb-px shrink-0 border-b-2 py-2 text-sm ${tab === t ? "border-signal text-ink" : "border-transparent text-muted hover:text-ink"}`}
-          >
-            {t}
-          </button>
-        ))}
+    <motion.article initial={{ opacity: 0, y: reduce ? 0 : motionTokens.distance.lg }} animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: motionTokens.duration.slow, ease: motionTokens.easing.smooth }}
+      className="mt-16 border-t-[3px] border-double border-ink pt-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
+        <span>{e.show}</span>
+        <span>{fmt(e.duration)} · {words} palavras · {e.chapters.length} capítulos</span>
       </div>
-      <button onClick={download} className="mt-3 font-mono text-xs text-muted underline hover:text-ink">
-        baixar tudo em .md
-      </button>
+      <h2 className="mt-3 max-w-3xl font-serif text-4xl leading-[1.02] sm:text-5xl">{e.title}</h2>
 
-      <div id="panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="pt-6">
-        {tab === "Capítulos" && (
-          <ol>
-            {ranges.map((c, i) => (
-              <li key={c.start}>
-                <button
-                  onClick={() => setActive(i)}
-                  aria-current={i === active}
-                  className={`grid w-full grid-cols-[4.5rem_1fr_auto] items-baseline gap-3 border-b border-rule py-3 text-left ${i === active ? "text-ink" : "text-muted hover:text-ink"}`}
-                >
-                  <span className="font-mono text-sm text-signal">{fmt(c.start)}</span>
-                  <span className="font-serif text-xl">{c.title}</span>
-                  <span className="font-mono text-xs">{fmt(c.end - c.start)}</span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        )}
-        {tab === "Resumo" && (
-          <ul className="space-y-4">
-            {e.summary.map((s, i) => (
-              <li key={i} className="grid grid-cols-[2rem_1fr] text-lg leading-relaxed">
-                <span className="font-mono text-sm text-signal">{String(i + 1).padStart(2, "0")}</span>{s}
-              </li>
-            ))}
-          </ul>
-        )}
-        {tab === "Posts" && (
-          <div className="space-y-6">
-            {e.posts.map((p) => <Post key={p.platform} platform={p.platform} text={p.text} />)}
-          </div>
-        )}
-        {tab === "Transcrição" && (
-          <div className="space-y-3">
-            {e.segments.map((s) => (
-              <p key={s.start} className="grid grid-cols-[4.5rem_1fr] gap-3 leading-relaxed">
-                <span className="font-mono text-sm text-muted">{fmt(s.start)}</span>{s.text}
-              </p>
-            ))}
-          </div>
-        )}
+      <div className="mt-8">
+        <Scrubber seed={e.id} ranges={ranges} duration={e.duration} active={active} onSeek={(i) => { setActive(i); setTab("Capítulos"); }} />
+        <p className="mt-8 flex items-baseline gap-3 font-mono text-xs">
+          <span className="text-signal">{fmt(ranges[active].start)}</span>
+          <span className="font-serif text-lg">{ranges[active].title}</span>
+        </p>
       </div>
-    </article>
+
+      <div className="mt-8 flex flex-wrap items-end justify-between gap-3 border-b border-rule">
+        <div role="tablist" aria-label="Resultado" className="flex gap-5 sm:gap-6">
+          {TABS.map((t, i) => (
+            <button key={t} role="tab" id={`tab-${t}`} aria-selected={tab === t} aria-controls="panel" tabIndex={tab === t ? 0 : -1}
+              onClick={() => setTab(t)} onKeyDown={(ev) => onTabKey(ev, i)}
+              className={`relative shrink-0 pb-3 text-sm ${tab === t ? "text-ink" : "text-muted hover:text-ink"}`}>
+              {t}
+              {tab === t && <motion.span layoutId="tab-line" className="absolute inset-x-0 -bottom-px h-[2px] bg-signal" transition={springs.snappy} />}
+            </button>
+          ))}
+        </div>
+        <button onClick={download} className="mb-2 border border-ink px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider hover:bg-ink hover:text-paper">
+          Exportar .md
+        </button>
+      </div>
+
+      <div id="panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="pt-8">
+        <AnimatePresence mode="wait">
+          <motion.div key={tab} initial={{ opacity: 0, y: reduce ? 0 : motionTokens.distance.sm }} animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }} transition={{ duration: motionTokens.duration.fast }}>
+            {tab === "Capítulos" && (
+              <ol className="relative ml-1 border-l border-rule">
+                {ranges.map((c, i) => (
+                  <li key={c.start} className="relative pl-6">
+                    <span className={`absolute -left-[5px] top-[1.35rem] size-[9px] rounded-full border ${i === active ? "border-signal bg-signal" : i < active ? "border-ink bg-ink" : "border-ink/40 bg-paper"}`} />
+                    <button onClick={() => setActive(i)} aria-current={i === active}
+                      className="grid w-full grid-cols-[4rem_1fr_auto] items-baseline gap-3 py-3 text-left">
+                      <span className="font-mono text-sm text-signal">{fmt(c.start)}</span>
+                      <span className={`font-serif text-xl leading-snug sm:text-2xl ${i === active ? "text-ink" : "text-muted hover:text-ink"}`}>{c.title}</span>
+                      <span className="font-mono text-[11px] text-muted">{fmt(c.end - c.start)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {tab === "Resumo" && (
+              <div className="grid gap-10 md:grid-cols-[1fr_14rem]">
+                <ol className="space-y-6">
+                  {e.summary.map((s, i) => (
+                    <li key={i} className="grid grid-cols-[2.5rem_1fr] text-lg leading-relaxed">
+                      <span className="font-serif text-3xl italic leading-none text-signal">{i + 1}</span>{s}
+                    </li>
+                  ))}
+                </ol>
+                <aside className="border-t border-ink pt-3 md:border-l md:border-t-0 md:pl-5 md:pt-0">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Leitura</p>
+                  <p className="mt-1 font-serif text-5xl">~1 min</p>
+                  <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Episódio</p>
+                  <p className="mt-1 font-serif text-5xl">{Math.round(e.duration / 60)} min</p>
+                </aside>
+              </div>
+            )}
+            {tab === "Posts" && (
+              <div className="grid gap-5 md:grid-cols-2">
+                {e.posts.map((p) => <Post key={p.platform} platform={p.platform} text={p.text} show={e.show} wide={p.platform === "linkedin"} />)}
+              </div>
+            )}
+            {tab === "Transcrição" && (
+              <div>
+                <label className="flex items-center gap-3 border-b border-ink pb-2">
+                  <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Buscar</span>
+                  <input value={q} onChange={(ev) => setQ(ev.target.value)} placeholder="desperdício, café, WhatsApp…"
+                    className="min-w-0 flex-1 bg-transparent py-1 font-serif text-xl outline-none placeholder:text-muted/60" />
+                  <span className="font-mono text-[11px] text-muted">{filtered.length}</span>
+                </label>
+                <div className="mt-4 space-y-1">
+                  {filtered.map((s) => (
+                    <p key={s.start} className="grid grid-cols-[4rem_1fr] gap-3 py-1.5 leading-relaxed">
+                      <button onClick={() => seekTime(s.start)} className="self-start text-left font-mono text-sm text-muted hover:text-signal">{fmt(s.start)}</button>
+                      <span><Highlight text={s.text} q={q} /></span>
+                    </p>
+                  ))}
+                  {!filtered.length && <p className="py-6 text-muted">Nada encontrado para “{q}”.</p>}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </motion.article>
   );
 }
 
-function Post({ platform, text }: { platform: keyof typeof LABELS; text: string }) {
+function Highlight({ text, q }: { text: string; q: string }) {
+  const s = q.trim();
+  if (!s) return <>{text}</>;
+  const i = text.toLowerCase().indexOf(s.toLowerCase());
+  if (i < 0) return <>{text}</>;
+  return <>{text.slice(0, i)}<mark className="bg-signal/20 text-ink">{text.slice(i, i + s.length)}</mark>{text.slice(i + s.length)}</>;
+}
+
+function Post({ platform, text, show, wide }: { platform: Platform; text: string; show: string; wide: boolean }) {
   const [copied, setCopied] = useState(false);
+  const over = text.length > LIMITS[platform];
   async function copy() {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { /* clipboard bloqueado */ }
   }
+  const handle = show.split("·")[0].trim();
   return (
-    <div className="rounded-sm border border-rule bg-card p-5">
-      <div className="flex items-center justify-between font-mono text-xs uppercase tracking-widest">
-        <span>{LABELS[platform]}</span>
-        <span className="text-muted">{text.length}/{LIMITS[platform]}</span>
+    <figure className={`flex flex-col border border-rule bg-card ${wide ? "md:col-span-2" : ""}`}>
+      <figcaption className="flex items-center gap-3 border-b border-rule px-4 py-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ink font-serif text-lg text-paper" aria-hidden="true">{handle[0]}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{handle}</span>
+          <span className="block font-mono text-[11px] text-muted">{LABELS[platform]} · rascunho</span>
+        </span>
+        <span className={`font-mono text-[11px] ${over ? "text-signal" : "text-muted"}`}>{text.length}/{LIMITS[platform]}</span>
+      </figcaption>
+      {platform === "instagram" && (
+        <div className="grid aspect-[4/3] place-items-center bg-ink p-6 text-center font-serif text-3xl italic leading-tight text-paper" aria-hidden="true">
+          “{text.split("\n")[0].replace(/[☕✏️]/g, "").trim()}”
+        </div>
+      )}
+      <p className="flex-1 whitespace-pre-line px-4 py-4 leading-relaxed">{text}</p>
+      <div className="px-4 pb-4">
+        <motion.button whileTap={{ scale: motionTokens.scale.press }} onClick={copy}
+          className="bg-ink px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-paper hover:bg-signal">
+          {copied ? "Copiado ✓" : "Copiar texto"}
+        </motion.button>
       </div>
-      <p className="mt-3 whitespace-pre-line leading-relaxed">{text}</p>
-      <button onClick={copy} className="mt-4 rounded-sm bg-ink px-3 py-1.5 font-mono text-xs text-paper hover:bg-signal">
-        {copied ? "copiado" : "copiar"}
-      </button>
-    </div>
+    </figure>
   );
 }
