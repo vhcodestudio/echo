@@ -12,6 +12,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://echo-vhcode.vercel.app"),
   alternates: { canonical: "/" },
   robots: { index: true, follow: true },
+  referrer: "strict-origin-when-cross-origin",
   openGraph:{ title: "echo — áudio vira conteúdo", description: "Transcrição, capítulos, resumo e posts a partir de um áudio.", type: "website" },
 };
 

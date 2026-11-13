@@ -12,6 +12,9 @@ const TRACKS = [
 export default function Home() {
   return (
     <div className="grain">
+      <a href="#conteudo" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:bg-ink focus:px-4 focus:py-2 focus:text-paper">
+        Pular para o conteúdo
+      </a>
       <div className="mx-auto max-w-6xl px-4 sm:px-8">
         <header className="flex items-center justify-between border-b border-ink py-4">
           <Link href="/" className="font-serif text-2xl italic leading-none">echo</Link>
@@ -22,7 +25,7 @@ export default function Home() {
           </nav>
         </header>
 
-        <main>
+        <main id="conteudo">
           <section className="grid gap-10 pb-16 pt-12 sm:pt-20 lg:grid-cols-[1fr_17rem] lg:gap-16">
             <div>
               <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">Para quem grava podcast, aula ou entrevista</p>
