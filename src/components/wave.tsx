@@ -17,7 +17,7 @@ export function HeroWave() {
   const reduce = useReducedMotion();
   const b = bars("echo-hero", 120);
   return (
-    <svg viewBox="0 0 720 120" className="h-24 w-full sm:h-32" aria-hidden="true" preserveAspectRatio="none">
+    <svg viewBox="0 0 720 120" className="breathe h-24 w-full sm:h-32" aria-hidden="true" preserveAspectRatio="none">
       {b.map((v, i) => (
         <motion.rect
           key={i}
@@ -27,7 +27,7 @@ export function HeroWave() {
           height={v * 112}
           rx="1.5"
           fill={i > 74 && i < 86 ? "var(--color-signal)" : "var(--color-ink)"}
-          style={{ transformOrigin: "center", transformBox: "fill-box" }}
+          style={{ transformOrigin: "center", transformBox: "fill-box", ["--i" as string]: i % 24 }}
           initial={{ scaleY: 1 }}
           animate={reduce ? undefined : { scaleY: [0.05, 1] }}
           transition={{ duration: motionTokens.duration.slow, ease: motionTokens.easing.smooth, delay: i * 0.006 }}

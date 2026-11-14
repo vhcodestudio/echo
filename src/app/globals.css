@@ -34,11 +34,15 @@ body {
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .rise { animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 
+/* After the bars rise, they keep a slow breathing loop, staggered per bar. */
+@keyframes breathe { 0%, 100% { scale: 1 1; } 50% { scale: 1 .55; } }
+.breathe rect { animation: breathe 2.6s ease-in-out infinite; animation-delay: calc(1.4s + var(--i) * 90ms); transform-origin: center; transform-box: fill-box; }
+
 @media print {
   body { background: #fff; }
   label, button, [role="tablist"], svg { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bar-live, .rise { animation: none; }
+  .bar-live, .rise, .breathe rect { animation: none; }
 }
