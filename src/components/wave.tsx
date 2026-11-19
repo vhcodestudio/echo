@@ -40,8 +40,8 @@ export function HeroWave() {
 type Range = { start: number; end: number; title: string };
 
 /** Chapter scrubber: waveform split into chapter blocks with a spring-driven playhead. */
-export function Scrubber({ seed, ranges, duration, active, onSeek }: {
-  seed: string; ranges: Range[]; duration: number; active: number; onSeek: (i: number) => void;
+export function Scrubber({ seed, ranges, duration, active, onSeek, goTo = (i, t) => `Ir para o capítulo ${i}: ${t}` }: {
+  goTo?: (i: number, t: string) => string; seed: string; ranges: Range[]; duration: number; active: number; onSeek: (i: number) => void;
 }) {
   const n = 140;
   const b = bars(seed, n);
@@ -67,7 +67,7 @@ export function Scrubber({ seed, ranges, duration, active, onSeek }: {
       <div className="absolute inset-0 flex">
         {ranges.map((r, i) => (
           <button key={r.start} onClick={() => onSeek(i)} title={r.title}
-            aria-label={`Ir para o capítulo ${i + 1}: ${r.title}`}
+            aria-label={goTo(i + 1, r.title)}
             className="group relative h-full border-l border-paper/0 hover:bg-ink/5 focus-visible:bg-ink/5"
             style={{ width: `${((r.end - r.start) / duration) * 100}%` }}>
             <span className="absolute -bottom-6 left-0 font-mono text-[10px] text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">

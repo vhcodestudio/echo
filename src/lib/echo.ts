@@ -29,19 +29,19 @@ export function chapterRanges(chapters: Chapter[], duration: number) {
 
 export const postFits = (p: Platform, text: string) => text.length <= LIMITS[p];
 
-export function toMarkdown(e: Episode) {
+export function toMarkdown(e: Episode, h = { chapters: "Capítulos", summary: "Resumo", transcript: "Transcrição" }) {
   return [
     `# ${e.title}`,
     `_${e.show} · ${fmt(e.duration)}_`,
     "",
-    "## Capítulos",
+    `## ${h.chapters}`,
     ...e.chapters.map((c) => `- ${fmt(c.start)} ${c.title}`),
     "",
-    "## Resumo",
+    `## ${h.summary}`,
     ...e.summary.map((s) => `- ${s}`),
     "",
     ...e.posts.flatMap((p) => [`## ${LABELS[p.platform]}`, p.text, ""]),
-    "## Transcrição",
+    `## ${h.transcript}`,
     ...e.segments.map((s) => `[${fmt(s.start)}] ${s.text}`),
   ].join("\n");
 }

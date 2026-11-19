@@ -6,13 +6,14 @@ import { chapterRanges, fmt, LABELS, LIMITS, toMarkdown, type Episode, type Plat
 import { samples } from "@/lib/samples";
 import { motionTokens, springs } from "@/lib/motion";
 import { Scrubber } from "./wave";
+import { dicts, type Lang, type Dict } from "@/lib/i18n";
 
-const STEPS = ["Áudio", "Transcrição", "Capítulos", "Textos"];
-const TABS = ["Capítulos", "Resumo", "Posts", "Transcrição"] as const;
+const TABS = ["chapters", "summary", "posts", "transcript"] as const;
 type Tab = (typeof TABS)[number];
 type FileInfo = { name: string; size: string; duration?: string };
 
-export function Studio() {
+export function Studio({ lang = "pt" }: { lang?: Lang }) {
+  const t = dicts[lang].studio;
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [running, setRunning] = useState<Episode | null>(null);
   const [step, setStep] = useState(0);
@@ -53,9 +54,9 @@ export function Studio() {
     if (!f) return;
     if (!f.type.startsWith("audio/")) {
       setFile(null);
-      return setError("Esse arquivo não é de áudio. Use MP3, WAV, M4A ou OGG.");
+      return setError(t.notAudio);
     }
-    if (f.size > 200 * 1024 * 1024) return setError("Arquivo acima de 200 MB. Corte o episódio ou exporte em MP3.");
+    if (f.size > 200 * 1024 * 1024) return setError(t.tooBig);
     const info: FileInfo = { name: f.name, size: `${(f.size / 1024 / 1024).toFixed(1)} MB` };
     setFile(info);
     const url = URL.createObjectURL(f);
@@ -73,8 +74,8 @@ export function Studio() {
     <>
       <section id="estudio" aria-labelledby="studio-h" className="scroll-mt-8">
         <div className="flex items-baseline justify-between border-b border-ink pb-2">
-          <h2 id="studio-h" className="font-mono text-xs uppercase tracking-[0.2em]">Estúdio</h2>
-          <span className="font-mono text-xs text-muted">lado A</span>
+          <h2 id="studio-h" className="font-mono text-xs uppercase tracking-[0.2em]">{t.title}</h2>
+          <span className="font-mono text-xs text-muted">{t.side}</span>
         </div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1.25fr_1fr]">
@@ -85,11 +86,11 @@ export function Studio() {
             className={`relative flex min-h-56 cursor-pointer flex-col justify-between overflow-hidden rounded-[2px] border p-5 transition-colors ${drag ? "border-signal bg-signal/5" : "border-ink/25 bg-card hover:border-ink"} focus-within:border-signal`}
           >
             <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
-              <span>Seu áudio</span><span>até 200 MB</span>
+              <span>{t.yourAudio}</span><span>{t.upTo}</span>
             </div>
             <div>
-              <p className="font-serif text-4xl leading-none">{drag ? "Pode soltar." : "Arraste o episódio para cá"}</p>
-              <p className="mt-2 text-sm text-muted">ou <span className="text-ink underline decoration-signal decoration-2 underline-offset-4">escolha um arquivo</span> · MP3, WAV, M4A, OGG</p>
+              <p className="font-serif text-4xl leading-none">{drag ? t.drop : t.drag}</p>
+              <p className="mt-2 text-sm text-muted">{t.or} <span className="text-ink underline decoration-signal decoration-2 underline-offset-4">{t.choose}</span> · MP3, WAV, M4A, OGG</p>
             </div>
             {file && (
               <div className="flex items-center gap-3 border-t border-rule pt-3 font-mono text-xs">
@@ -102,7 +103,7 @@ export function Studio() {
           </label>
 
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Ou ouça o que ele faz com</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{t.listen}{t.sampleNote && <span className="ml-2 normal-case tracking-normal">· {t.sampleNote}</span>}</p>
             <ol className="mt-3 divide-y divide-rule border-y border-rule">
               {samples.map((s, i) => (
                 <li key={s.id}>
@@ -125,7 +126,7 @@ export function Studio() {
           {error && <p role="alert" className="mt-4 border-l-2 border-signal pl-3 text-sm">{error}</p>}
           {file && !error && (
             <p className="mt-4 border-l-2 border-ink/30 pl-3 text-sm text-muted">
-              Seu arquivo não saiu do navegador. Esta versão pública não transcreve áudio real, então mostramos um episódio de exemplo processado do mesmo jeito.
+              {t.local}
             </p>
           )}
         </div>
@@ -134,8 +135,8 @@ export function Studio() {
           {running && (
             <motion.div key="proc" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               transition={{ duration: motionTokens.duration.fast }} className="mt-10 border border-ink bg-card p-5">
-              <ol className="grid grid-cols-4 gap-2" aria-label="Progresso">
-                {STEPS.map((s, i) => (
+              <ol className="grid grid-cols-4 gap-2" aria-label={t.progress}>
+                {t.steps.map((s, i) => (
                   <li key={s} aria-current={i === step ? "step" : undefined}>
                     <div className="h-1 overflow-hidden bg-rule">
                       <motion.div className="h-full origin-left bg-signal" initial={false}
@@ -155,14 +156,14 @@ export function Studio() {
       </section>
 
       <div ref={resultRef} className="scroll-mt-6">
-        {episode && <Result key={episode.id} e={episode} />}
+        {episode && <Result key={episode.id} e={episode} t={t} lang={lang} />}
       </div>
     </>
   );
 }
 
-function Result({ e }: { e: Episode }) {
-  const [tab, setTab] = useState<Tab>("Capítulos");
+function Result({ e, t, lang }: { e: Episode; t: Dict["studio"]; lang: Lang }) {
+  const [tab, setTab] = useState<Tab>("chapters");
   const [active, setActive] = useState(0);
   const [q, setQ] = useState("");
   const ranges = chapterRanges(e.chapters, e.duration);
@@ -172,7 +173,7 @@ function Result({ e }: { e: Episode }) {
   const seekTime = (t: number) => setActive(Math.max(0, ranges.findLastIndex((r) => r.start <= t)));
 
   function download() {
-    const url = URL.createObjectURL(new Blob([toMarkdown(e)], { type: "text/markdown" }));
+    const url = URL.createObjectURL(new Blob([toMarkdown(e, dicts[lang].studio.md)], { type: "text/markdown" }));
     const a = Object.assign(document.createElement("a"), { href: url, download: `${e.id}.md` });
     a.click();
     URL.revokeObjectURL(url);
@@ -197,12 +198,12 @@ function Result({ e }: { e: Episode }) {
       className="mt-16 border-t-[3px] border-double border-ink pt-8">
       <div className="flex flex-wrap items-baseline justify-between gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
         <span>{e.show}</span>
-        <span>{fmt(e.duration)} · {words} palavras · {e.chapters.length} capítulos</span>
+        <span>{fmt(e.duration)} · {words} {t.words} · {e.chapters.length} {t.chapters}</span>
       </div>
       <h2 className="mt-3 max-w-3xl font-serif text-4xl leading-[1.02] sm:text-5xl">{e.title}</h2>
 
       <div className="mt-8">
-        <Scrubber seed={e.id} ranges={ranges} duration={e.duration} active={active} onSeek={(i) => { setActive(i); setTab("Capítulos"); }} />
+        <Scrubber goTo={t.goTo} seed={e.id} ranges={ranges} duration={e.duration} active={active} onSeek={(i) => { setActive(i); setTab("chapters"); }} />
         <p className="mt-8 flex items-baseline gap-3 font-mono text-xs">
           <span className="text-signal">{fmt(ranges[active].start)}</span>
           <span className="font-serif text-lg">{ranges[active].title}</span>
@@ -210,18 +211,18 @@ function Result({ e }: { e: Episode }) {
       </div>
 
       <div className="mt-8 flex flex-wrap items-end justify-between gap-3 border-b border-rule">
-        <div role="tablist" aria-label="Resultado" className="flex gap-5 sm:gap-6">
-          {TABS.map((t, i) => (
-            <button key={t} role="tab" id={`tab-${t}`} aria-selected={tab === t} aria-controls="panel" tabIndex={tab === t ? 0 : -1}
-              onClick={() => setTab(t)} onKeyDown={(ev) => onTabKey(ev, i)}
-              className={`relative shrink-0 pb-3 text-sm ${tab === t ? "text-ink" : "text-muted hover:text-ink"}`}>
-              {t}
-              {tab === t && <motion.span layoutId="tab-line" className="absolute inset-x-0 -bottom-px h-[2px] bg-signal" transition={springs.snappy} />}
+        <div role="tablist" aria-label={t.resultLabel} className="flex gap-5 sm:gap-6">
+          {TABS.map((id, i) => (
+            <button key={id} role="tab" id={`tab-${id}`} aria-selected={tab === id} aria-controls="panel" tabIndex={tab === id ? 0 : -1}
+              onClick={() => setTab(id)} onKeyDown={(ev) => onTabKey(ev, i)}
+              className={`relative shrink-0 pb-3 text-sm ${tab === id ? "text-ink" : "text-muted hover:text-ink"}`}>
+              {t.tabs[i]}
+              {tab === id && <motion.span layoutId="tab-line" className="absolute inset-x-0 -bottom-px h-[2px] bg-signal" transition={springs.snappy} />}
             </button>
           ))}
         </div>
         <button onClick={download} className="mb-2 border border-ink px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider hover:bg-ink hover:text-paper">
-          Exportar .md
+          {t.export}
         </button>
       </div>
 
@@ -229,7 +230,7 @@ function Result({ e }: { e: Episode }) {
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, y: reduce ? 0 : motionTokens.distance.sm }} animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }} transition={{ duration: motionTokens.duration.fast }}>
-            {tab === "Capítulos" && (
+            {tab === "chapters" && (
               <ol className="relative ml-1 border-l border-rule">
                 {ranges.map((c, i) => (
                   <li key={c.start} className="relative pl-6">
@@ -244,7 +245,7 @@ function Result({ e }: { e: Episode }) {
                 ))}
               </ol>
             )}
-            {tab === "Resumo" && (
+            {tab === "summary" && (
               <div className="grid gap-10 md:grid-cols-[1fr_14rem]">
                 <ol className="space-y-6">
                   {e.summary.map((s, i) => (
@@ -254,23 +255,23 @@ function Result({ e }: { e: Episode }) {
                   ))}
                 </ol>
                 <aside className="border-t border-ink pt-3 md:border-l md:border-t-0 md:pl-5 md:pt-0">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Leitura</p>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{t.reading}</p>
                   <p className="mt-1 font-serif text-5xl">~1 min</p>
-                  <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Episódio</p>
+                  <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{t.episode}</p>
                   <p className="mt-1 font-serif text-5xl">{Math.round(e.duration / 60)} min</p>
                 </aside>
               </div>
             )}
-            {tab === "Posts" && (
+            {tab === "posts" && (
               <div className="grid gap-5 md:grid-cols-2">
-                {e.posts.map((p) => <Post key={p.platform} platform={p.platform} text={p.text} show={e.show} wide={p.platform === "linkedin"} />)}
+                {e.posts.map((p) => <Post key={p.platform} platform={p.platform} text={p.text} show={e.show} wide={p.platform === "linkedin"} t={t} />)}
               </div>
             )}
-            {tab === "Transcrição" && (
+            {tab === "transcript" && (
               <div>
                 <label className="flex items-center gap-3 border-b border-ink pb-2">
-                  <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Buscar</span>
-                  <input value={q} onChange={(ev) => setQ(ev.target.value)} placeholder="desperdício, café, WhatsApp…"
+                  <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">{t.search}</span>
+                  <input value={q} onChange={(ev) => setQ(ev.target.value)} placeholder={t.searchHint}
                     className="min-w-0 flex-1 bg-transparent py-1 font-serif text-xl outline-none placeholder:text-muted/60" />
                   <span className="font-mono text-[11px] text-muted">{filtered.length}</span>
                 </label>
@@ -281,7 +282,7 @@ function Result({ e }: { e: Episode }) {
                       <span><Highlight text={s.text} q={q} /></span>
                     </p>
                   ))}
-                  {!filtered.length && <p className="py-6 text-muted">Nada encontrado para “{q}”.</p>}
+                  {!filtered.length && <p className="py-6 text-muted">{t.none(q)}</p>}
                 </div>
               </div>
             )}
@@ -300,7 +301,7 @@ function Highlight({ text, q }: { text: string; q: string }) {
   return <>{text.slice(0, i)}<mark className="bg-signal/20 text-ink">{text.slice(i, i + s.length)}</mark>{text.slice(i + s.length)}</>;
 }
 
-function Post({ platform, text, show, wide }: { platform: Platform; text: string; show: string; wide: boolean }) {
+function Post({ platform, text, show, wide, t }: { platform: Platform; text: string; show: string; wide: boolean; t: Dict["studio"] }) {
   const [copied, setCopied] = useState(false);
   const over = text.length > LIMITS[platform];
   async function copy() {
@@ -313,7 +314,7 @@ function Post({ platform, text, show, wide }: { platform: Platform; text: string
         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-ink font-serif text-lg text-paper" aria-hidden="true">{handle[0]}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{handle}</span>
-          <span className="block font-mono text-[11px] text-muted">{LABELS[platform]} · rascunho</span>
+          <span className="block font-mono text-[11px] text-muted">{LABELS[platform]} · {t.draft}</span>
         </span>
         <span className={`font-mono text-[11px] ${over ? "text-signal" : "text-muted"}`}>{text.length}/{LIMITS[platform]}</span>
       </figcaption>
@@ -326,7 +327,7 @@ function Post({ platform, text, show, wide }: { platform: Platform; text: string
       <div className="px-4 pb-4">
         <motion.button whileTap={{ scale: motionTokens.scale.press }} onClick={copy}
           className="bg-ink px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-paper hover:bg-signal">
-          {copied ? "Copiado ✓" : "Copiar texto"}
+          {copied ? t.copied : t.copy}
         </motion.button>
       </div>
     </figure>
